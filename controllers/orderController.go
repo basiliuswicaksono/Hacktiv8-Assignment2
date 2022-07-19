@@ -4,10 +4,16 @@ import (
 	"assignment2/models"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/gorm"
 )
+
+type Order struct {
+	Customer_Name string
+	Ordered_At    time.Time
+}
 
 type OrderController struct {
 	db *gorm.DB
@@ -98,9 +104,114 @@ func (o *OrderController) GetOrderByID(ctx *gin.Context) {
 	})
 }
 
-// func (o *OrderController) UpdateOrder(ctx *gin.Context) {
-// 	orderid := ctx.Param("orderid")
+func (o *OrderController) UpdateOrderAndItems(ctx *gin.Context) {
+	orderid := ctx.Param("orderid")
 
-// 	var order models.Order
+	var (
+		orderAndItems models.Order
+		order         models.Order
+		newOrder      Order
+	)
 
-// }
+	err := ctx.ShouldBindJSON(&orderAndItems)
+	if err != nil {
+		badRequestResponse(ctx, err.Error())
+		return
+	}
+
+	// fmt.Printf("%+v <<<items/n", newOrder.Items)
+
+	// find by id
+	err = o.db.First(&order, orderid).Error
+	if err != nil {
+		if err.Error() == gorm.ErrRecordNotFound.Error() {
+			notFoundResponse(ctx, err.Error())
+			return
+		}
+		badRequestResponse(ctx, err.Error())
+		return
+	}
+
+	// update order by id
+	newOrder.Customer_Name = orderAndItems.Customer_Name
+	newOrder.Ordered_At = orderAndItems.Ordered_At
+	err = o.db.Model(&order).Updates(newOrder).Error
+	if err != nil {
+		writeJsonResponse(ctx, http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// update item by orderId
+	for _, itm := range orderAndItems.Items {
+		var item models.Item
+		// find item by orderid
+		err = o.db.Where("id = ? AND order_id = ?", itm.ID, orderid).First(&item).Error
+		if err == nil {
+			// update item by orderid
+			err = o.db.Model(&item).Updates(itm).Error
+			if err != nil {
+				writeJsonResponse(ctx, http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   err.Error(),
+				})
+				return
+			}
+		}
+
+	}
+
+	writeJsonResponse(ctx, http.StatusOK, gin.H{
+		"success": true,
+		"message": "order and items - update success",
+	})
+}
+
+func (o *OrderController) DeleteOrderAndItems(ctx *gin.Context) {
+	orderid := ctx.Param("orderid")
+
+	var order models.Order
+
+	// fmt.Printf("%+v <<<items/n", newOrder.Items)
+
+	// find by id
+	err := o.db.First(&order, orderid).Error
+	if err != nil {
+		if err.Error() == gorm.ErrRecordNotFound.Error() {
+			notFoundResponse(ctx, err.Error())
+			return
+		}
+		badRequestResponse(ctx, err.Error())
+		return
+	}
+
+	// delete order by id
+	err = o.db.Delete(&order).Error
+	if err != nil {
+		writeJsonResponse(ctx, http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// delete item by orderId
+
+	var item models.Item
+	// find item by orderid
+	err = o.db.Where("order_id = ?", orderid).Delete(&item).Error
+	if err != nil {
+		writeJsonResponse(ctx, http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	writeJsonResponse(ctx, http.StatusOK, gin.H{
+		"success": true,
+		"message": "order and items - delete success",
+	})
+}
